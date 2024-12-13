@@ -23,7 +23,7 @@ fun main(): Unit = runBlocking {
     val verification = Channel<Boolean>()
     val verifier = Channel<String>()
     val porteOuverte = Channel<Unit>()
-    val ouvrir_porte = Channel<Unit>()
+    val ouvrir_porte = Channel<String>()
 
     // voyant
     val rouge = Channel<Unit>()
@@ -48,6 +48,10 @@ fun main(): Unit = runBlocking {
 
     launch {
         passageUsager(ouvrirPorte, vert, detPassage, ajouterAuxLogs, activAlarme)
+    }
+
+    launch {
+        lecteurDeBadge(capScanner,verification, verifier, porteOuverte, ouvrir_porte, rouge)
     }
 
     launch {
