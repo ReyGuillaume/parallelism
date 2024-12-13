@@ -62,6 +62,10 @@ fun main(): Unit = runBlocking {
     launch {
         systemeGlobal(verifier, verification, ajouterAuxLogs, afficherLogs)
     }
+
+    launch {
+        voyant(vert, rouge)
+    }
 }
 
 suspend fun faisceauLaser(detPassage: Channel<Unit>, capPassage: Channel<Unit>) {
@@ -204,6 +208,31 @@ suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boole
             afficherLogs.onReceive {
                 println("--- Logs ---")
                 logs.forEach { println(it) }
+            }
+        }
+    }
+}
+
+suspend fun voyant(
+    vert: Channel<Unit>,
+    rouge: Channel<Unit>)= runBlocking {
+
+    var finTimer = Channel<Unit>()
+
+    var etat = "eteint"
+    while (true){
+        println("Voyant de la porte: État actuel -> $etat")
+        select<Unit> {
+            vert.onReceive {
+                timer(5, finTimer)
+                etat = "vert"
+            }
+            rouge.onReceive {
+                timer(10, finTimer)
+                etat = "rouge"
+            }
+            finTimer.onReceive {
+                etat = "eteint"
             }
         }
     }
