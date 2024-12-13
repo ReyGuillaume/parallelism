@@ -3,7 +3,6 @@ package org.example
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.selects.select
-import java.lang.Thread.sleep
 import java.util.*
 
 fun main(): Unit = runBlocking {
@@ -31,9 +30,15 @@ fun main(): Unit = runBlocking {
     // passage usager
     val ouvrirPorte = Channel<String>()
     val vert = Channel<Unit>()
-    val ajouterAuxLogs = Channel<String>()
     val afficherLogs = Channel<Unit>()
 
+    launch {
+        voyant(vert, rouge)
+    }
+
+    launch {
+        systemeGlobal(verifier, verification, afficherLogs)
+    }
 
     launch {
         faisceauLaser(detPassage, capPassage)
@@ -48,7 +53,7 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
-        passageUsager(ouvrirPorte, vert, detPassage, ajouterAuxLogs, activAlarme)
+        passageUsager(ouvrirPorte, vert, detPassage, activAlarme)
     }
 
     launch {
@@ -57,14 +62,6 @@ fun main(): Unit = runBlocking {
 
     launch {
         salleDeControle(detFeu, capPassage, capScanner, afficherLogs)
-    }
-
-    launch {
-        systemeGlobal(verifier, verification, ajouterAuxLogs, afficherLogs)
-    }
-
-    launch {
-        voyant(vert, rouge)
     }
 }
 
@@ -135,6 +132,10 @@ suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, ca
             detFeu.send(Unit)
         }
 
+        if (input.equals("eteindre feu", ignoreCase = true)) {
+            detFeu.send(Unit)
+        }
+
         if (input.equals("eteindre alarme", ignoreCase = true)) {
             detFeu.send(Unit)
         }
@@ -155,17 +156,17 @@ suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, ca
     }
 }
 
-suspend fun passageUsager(
+fun passageUsager(
     ouvrirPorte: Channel<String>,
     vert: Channel<Unit>,
     detPassage: Channel<Unit>,
-    ajouterAuxLogs: Channel<String>,
     activAlarm: Channel<Unit>
 ) = runBlocking {
     val finTimer = Channel<Unit>()
 
     while (true) {
-        val badge = ouvrirPorte.receive()
+        ouvrirPorte.receive()
+        println("porte")
         launch {
             timer(30, finTimer)
         }
@@ -173,10 +174,11 @@ suspend fun passageUsager(
         select<Unit> {
             finTimer.onReceive {}
             detPassage.onReceive {
-                ajouterAuxLogs.send(badge)
+                println("porte2")
                 select<Unit> {
                     finTimer.onReceive {}
                     detPassage.onReceive {
+                        println("porte3")
                         activAlarm.send(Unit)
                     }
                 }
@@ -185,25 +187,24 @@ suspend fun passageUsager(
     }
 }
 
-fun timer(
+suspend fun timer(
     timeout: Long,
     finTimer: Channel<Unit>,
-) = runBlocking {
-    sleep(timeout * 1000)
+) {
+    delay(timeout * 1000)
     finTimer.send(Unit)
 }
 
-suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boolean>, ajouterAuxLogs: Channel<String>, afficherLogs: Channel<Unit>) {
+suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boolean>, afficherLogs: Channel<Unit>) {
     val authorisation = listOf("guigui", "leo")
     val logs: MutableList<String> = mutableListOf()
 
     while (true) {
         select<Unit> {
-            verifier.onReceive { badge ->
-                val auth = authorisation.contains(badge)
+            verifier.onReceive {
+                val auth = authorisation.contains(it)
                 verification.send(auth)
-                val usager = ajouterAuxLogs.receive()
-                logs.add(usager)
+                logs.add(it)
             }
             afficherLogs.onReceive {
                 println("--- Logs ---")
@@ -213,26 +214,26 @@ suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boole
     }
 }
 
-suspend fun voyant(
+fun voyant(
     vert: Channel<Unit>,
-    rouge: Channel<Unit>)= runBlocking {
-
+    rouge: Channel<Unit>
+) = runBlocking {
     val finTimer = Channel<Unit>()
-
     var etat = "eteint"
+
     while (true){
         select<Unit> {
             vert.onReceive {
+                etat = "vert"
                 launch {
                     timer(5, finTimer)
                 }
-                etat = "vert"
             }
             rouge.onReceive {
+                etat = "rouge"
                 launch {
                     timer(10, finTimer)
                 }
-                etat = "rouge"
             }
             finTimer.onReceive {
                 etat = "eteint"
