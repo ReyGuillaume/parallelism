@@ -31,5 +31,3 @@ bin/
 ### Mac OS ###
 .DS_Store
 /.idea
-*.iml
-parallelism.iml
