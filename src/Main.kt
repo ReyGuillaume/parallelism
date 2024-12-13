@@ -1,61 +1,194 @@
-import kotlinx.coroutines.*
+package org.example
+
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.*
+import kotlinx.coroutines.selects.select
+import java.util.*
 
-// Enum pour représenter l'état de la porte
-enum class PorteEtat {
-    OUVERTE, FERMEE
-}
+fun main(): Unit = runBlocking {
+    // faisceauLaser
+    val detPassage = Channel<Unit>()
+    val capPassage = Channel<Unit>()
 
-// Fonction principale
-fun main() = runBlocking {
-    // Canal pour communiquer l'état de la porte
-    val canalPorte = Channel<PorteEtat>()
+    // alarme
+    val activAlarme = Channel<Unit>()
+    val desactivAlarme = Channel<Unit>()
 
-    // Canal pour détecter le passage
-    val canalPassage = Channel<String>()
+    // detecteur incendie
+    val detFeu = Channel<Unit>()
 
-    // Lancement des coroutines pour simuler le système
-    val gestionPorte = launch { gestionPorte(canalPorte, canalPassage) }
-    val detecteurPassage = launch { detecteurPassage(canalPorte, canalPassage) }
+    //badge
+    val capScanner = Channel<String>()
+    val verification = Channel<Boolean>()
+    val verifier = Channel<String>()
+    val porteOuverte = Channel<Unit>()
+    val ouvrir_porte = Channel<Unit>()
 
-    // Simule des actions utilisateur (ouverture/fermeture de la porte)
-    val actions = listOf(
-        PorteEtat.OUVERTE, // Ouvrir la porte
-        PorteEtat.FERMEE,  // Fermer la porte
-        PorteEtat.OUVERTE, // Ouvrir à nouveau
-    )
+    // voyant
+    val rouge = Channel<Unit>()
 
-    // Envoie des actions au canal
-    for (action in actions) {
-        delay(2000L) // Simule un délai entre les actions
-        println("Action utilisateur: $action")
-        canalPorte.send(action)
+
+    launch {
+        faisceauLaser(detPassage, capPassage)
     }
 
-    // Arrêter les coroutines
-    gestionPorte.cancelAndJoin()
-    detecteurPassage.cancelAndJoin()
+    launch {
+        alarme(activAlarme, desactivAlarme)
+    }
+
+    launch {
+        detecteurIncendie(detFeu, activAlarme)
+    }
+    /*
+        launch {
+            passageUsager(ouvrirPorte, detPassage, ajouter, timer, eteint, vert, activAlarm)
+        }
+
+     */
+
+    launch {
+        salleDeControle(detFeu, capPassage, capScanner)
+    }
 }
 
-// Coroutine pour gérer la porte
-suspend fun gestionPorte(canalPorte: Channel<PorteEtat>, canalPassage: Channel<String>) {
-    var etatPorte = PorteEtat.FERMEE
+suspend fun faisceauLaser(detPassage: Channel<Unit>, capPassage: Channel<Unit>) {
+    while (true) {
+        capPassage.receive()
+        detPassage.send(Unit)
+        println("passage")
+    }
+}
 
-    for (etat in canalPorte) {
-        etatPorte = etat
-        println("La porte est maintenant $etatPorte")
-        // Si la porte est ouverte, on notifie les détecteurs
-        if (etatPorte == PorteEtat.OUVERTE) {
-            canalPassage.send("DETECTEUR_ACTIVE")
+suspend fun alarme(
+    activAlarme: Channel<Unit>,
+    desactivAlarme: Channel<Unit>,
+) {
+    var etat = "inactive"
+
+    while (true) {
+        println("Alarme: État actuel -> $etat")
+        select<Unit> {
+            activAlarme.onReceive {
+                etat = "active"
+            }
+
+            desactivAlarme.onReceive {
+                etat = "eteint"
+            }
         }
     }
 }
 
-// Coroutine pour le détecteur de passage
-suspend fun detecteurPassage(canalPorte: Channel<PorteEtat>, canalPassage: Channel<String>) {
-    for (message in canalPassage) {
-        if (message == "DETECTEUR_ACTIVE") {
-            println("Détecteur: Passage détecté !")
+suspend fun lecteurDeBadge(
+    capScanner: Channel<String>,
+    verification: Channel<Boolean>,
+    verifier: Channel<String>,
+    porteOuverte: Channel<Unit>,
+    ouvrir_porte: Channel<String>,
+    rouge: Channel<Unit>,
+) {
+    while (true) {
+        val user = capScanner.receive()
+        verifier.send(user)
+        val userAccepted = verification.receive()
+        if(userAccepted){
+            ouvrir_porte.send(user)
+            porteOuverte.send(Unit)
+        } else {
+            rouge.send(Unit)
         }
     }
 }
+
+suspend fun detecteurIncendie(detFeu: Channel<Unit>, activAlarm: Channel<Unit>) {
+    while (true) {
+        detFeu.receive()
+        activAlarm.send(Unit)
+    }
+}
+
+suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, capScanner: Channel<String>) {
+    val userInput = Scanner(System.`in`)
+
+    while (true) {
+        print("> ")
+        val input = userInput.nextLine()
+
+        if (input.equals("feu", ignoreCase = true)) {
+            detFeu.send(Unit)
+        }
+
+        if (input.equals("passage", ignoreCase = true)) {
+            capPassage.send(Unit)
+        }
+
+        if (input.equals("scan", ignoreCase = true)) {
+            capScanner.send("infoUser")
+        }
+
+        delay(1000)
+    }
+}
+
+/*
+suspend fun passageUsager(
+    ouvrirPorte: Channel<String>,
+    detPassage: Channel<Unit>,
+    ajouter: Channel<String>,
+    timer: Channel<Int>,
+    eteint: Channel<Unit>,
+    vert: Channel<Unit>,
+    activAlarm: Channel<Unit>
+) {
+    while (true) {
+        select<Unit> {
+            // Réception d'un badge
+            ouvrirPorte.onReceive { badge ->
+                println("PassageUsager: Badge reçu -> $badge")
+                timer.send(30) // Démarrer un timer de 30 secondes
+                vert.send(Unit) // Allumer la lumière verte
+                println("PassageUsager: Timer démarré pour 30 secondes")
+
+                launch {
+                    gestionTimer(timer, eteint, badge, detPassage, ajouter, activAlarm)
+                }
+            }
+        }
+    }
+}
+
+suspend fun gestionTimer(
+    timer: Channel<Int>,
+    eteint: Channel<Unit>,
+    badge: String,
+    detPassage: Channel<Unit>,
+    ajouter: Channel<String>,
+    activAlarm: Channel<Unit>
+) {
+    var passageDetecte = false
+    while (true) {
+        select<Unit> {
+            // Timer expiré
+            timer.onReceive {
+                if (!passageDetecte) {
+                    eteint.send(Unit)
+                    println("PassageUsager: Lumière éteinte après expiration du timer")
+                    return
+                }
+            }
+
+            // Passage détecté
+            detPassage.onReceive {
+                if (!passageDetecte) {
+                    passageDetecte = true
+                    ajouter.send(badge) // Ajouter le badge
+                    println("PassageUsager: Passage détecté, badge ajouté -> $badge")
+                } else {
+                    activAlarm.send(Unit) // Activer l'alarme pour un second passage
+                    println("PassageUsager: Deuxième passage détecté, alarme activée !")
+                }
+            }
+        }
+    }
+}
+*/
