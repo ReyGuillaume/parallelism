@@ -3,6 +3,7 @@ package org.example
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.selects.select
+import java.lang.Thread.sleep
 import java.util.*
 
 fun main(): Unit = runBlocking {
@@ -27,6 +28,11 @@ fun main(): Unit = runBlocking {
     // voyant
     val rouge = Channel<Unit>()
 
+    // passage usager
+    val ouvrirPorte = Channel<String>()
+    val vert = Channel<Unit>()
+    val ajouterAuxLogs = Channel<String>()
+
 
     launch {
         faisceauLaser(detPassage, capPassage)
@@ -39,12 +45,10 @@ fun main(): Unit = runBlocking {
     launch {
         detecteurIncendie(detFeu, activAlarme)
     }
-    /*
-        launch {
-            passageUsager(ouvrirPorte, detPassage, ajouter, timer, eteint, vert, activAlarm)
-        }
 
-     */
+    launch {
+        passageUsager(ouvrirPorte, vert, detPassage, ajouterAuxLogs, activAlarme)
+    }
 
     launch {
         salleDeControle(detFeu, capPassage, capScanner)
@@ -130,65 +134,40 @@ suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, ca
     }
 }
 
-/*
 suspend fun passageUsager(
     ouvrirPorte: Channel<String>,
-    detPassage: Channel<Unit>,
-    ajouter: Channel<String>,
-    timer: Channel<Int>,
-    eteint: Channel<Unit>,
     vert: Channel<Unit>,
-    activAlarm: Channel<Unit>
-) {
-    while (true) {
-        select<Unit> {
-            // Réception d'un badge
-            ouvrirPorte.onReceive { badge ->
-                println("PassageUsager: Badge reçu -> $badge")
-                timer.send(30) // Démarrer un timer de 30 secondes
-                vert.send(Unit) // Allumer la lumière verte
-                println("PassageUsager: Timer démarré pour 30 secondes")
-
-                launch {
-                    gestionTimer(timer, eteint, badge, detPassage, ajouter, activAlarm)
-                }
-            }
-        }
-    }
-}
-
-suspend fun gestionTimer(
-    timer: Channel<Int>,
-    eteint: Channel<Unit>,
-    badge: String,
     detPassage: Channel<Unit>,
-    ajouter: Channel<String>,
+    ajouterAuxLogs: Channel<String>,
     activAlarm: Channel<Unit>
-) {
-    var passageDetecte = false
-    while (true) {
-        select<Unit> {
-            // Timer expiré
-            timer.onReceive {
-                if (!passageDetecte) {
-                    eteint.send(Unit)
-                    println("PassageUsager: Lumière éteinte après expiration du timer")
-                    return
-                }
-            }
+) = runBlocking {
+    val finTimer = Channel<Unit>()
 
-            // Passage détecté
+    while (true) {
+        val badge = ouvrirPorte.receive()
+        launch {
+            timer(30, finTimer)
+        }
+        vert.send(Unit)
+        select<Unit> {
+            finTimer.onReceive {}
             detPassage.onReceive {
-                if (!passageDetecte) {
-                    passageDetecte = true
-                    ajouter.send(badge) // Ajouter le badge
-                    println("PassageUsager: Passage détecté, badge ajouté -> $badge")
-                } else {
-                    activAlarm.send(Unit) // Activer l'alarme pour un second passage
-                    println("PassageUsager: Deuxième passage détecté, alarme activée !")
+                ajouterAuxLogs.send(badge)
+                select<Unit> {
+                    finTimer.onReceive {}
+                    detPassage.onReceive {
+                        activAlarm.send(Unit)
+                    }
                 }
             }
         }
     }
 }
-*/
+
+fun timer(
+    timeout: Long,
+    finTimer: Channel<Unit>,
+) = runBlocking {
+    sleep(timeout * 1000)
+    finTimer.send(Unit)
+}
