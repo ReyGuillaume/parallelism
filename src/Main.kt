@@ -223,11 +223,15 @@ suspend fun voyant(
     while (true){
         select<Unit> {
             vert.onReceive {
-                timer(5, finTimer)
+                launch {
+                    timer(5, finTimer)
+                }
                 etat = "vert"
             }
             rouge.onReceive {
-                timer(10, finTimer)
+                launch {
+                    timer(10, finTimer)
+                }
                 etat = "rouge"
             }
             finTimer.onReceive {
