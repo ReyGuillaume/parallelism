@@ -83,7 +83,6 @@ suspend fun alarme(
     var etat = "inactive"
 
     while (true) {
-        println("Alarme: État actuel -> $etat")
         select<Unit> {
             activAlarme.onReceive {
                 etat = "active"
@@ -93,6 +92,7 @@ suspend fun alarme(
                 etat = "eteint"
             }
         }
+        println("Alarme: État actuel -> $etat")
     }
 }
 
@@ -217,11 +217,10 @@ suspend fun voyant(
     vert: Channel<Unit>,
     rouge: Channel<Unit>)= runBlocking {
 
-    var finTimer = Channel<Unit>()
+    val finTimer = Channel<Unit>()
 
     var etat = "eteint"
     while (true){
-        println("Voyant de la porte: État actuel -> $etat")
         select<Unit> {
             vert.onReceive {
                 timer(5, finTimer)
@@ -235,5 +234,6 @@ suspend fun voyant(
                 etat = "eteint"
             }
         }
+        println("Voyant de la porte: État actuel -> $etat")
     }
 }
