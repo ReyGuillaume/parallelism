@@ -32,6 +32,7 @@ fun main(): Unit = runBlocking {
     val ouvrirPorte = Channel<String>()
     val vert = Channel<Unit>()
     val ajouterAuxLogs = Channel<String>()
+    val afficherLogs = Channel<Unit>()
 
 
     launch {
@@ -55,7 +56,11 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
-        salleDeControle(detFeu, capPassage, capScanner)
+        salleDeControle(detFeu, capPassage, capScanner, afficherLogs)
+    }
+
+    launch {
+        systemeGlobal(verifier, verification, ajouterAuxLogs, afficherLogs)
     }
 }
 
@@ -115,7 +120,7 @@ suspend fun detecteurIncendie(detFeu: Channel<Unit>, activAlarm: Channel<Unit>) 
     }
 }
 
-suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, capScanner: Channel<String>) {
+suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, capScanner: Channel<String>, afficherLogs: Channel<Unit>) {
     val userInput = Scanner(System.`in`)
 
     while (true) {
@@ -126,12 +131,20 @@ suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, ca
             detFeu.send(Unit)
         }
 
+        if (input.equals("eteindre alarme", ignoreCase = true)) {
+            detFeu.send(Unit)
+        }
+
         if (input.equals("passage", ignoreCase = true)) {
             capPassage.send(Unit)
         }
 
         if (input.equals("scan", ignoreCase = true)) {
-            capScanner.send("infoUser")
+            capScanner.send("guigui")
+        }
+
+        if (input.equals("logs", ignoreCase = true)) {
+            afficherLogs.send(Unit)
         }
 
         delay(1000)
@@ -174,4 +187,24 @@ fun timer(
 ) = runBlocking {
     sleep(timeout * 1000)
     finTimer.send(Unit)
+}
+
+suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boolean>, ajouterAuxLogs: Channel<String>, afficherLogs: Channel<Unit>) {
+    val authorisation = listOf("guigui", "leo")
+    val logs: MutableList<String> = mutableListOf()
+
+    while (true) {
+        select<Unit> {
+            verifier.onReceive { badge ->
+                val auth = authorisation.contains(badge)
+                verification.send(auth)
+                val usager = ajouterAuxLogs.receive()
+                logs.add(usager)
+            }
+            afficherLogs.onReceive {
+                println("--- Logs ---")
+                logs.forEach { println(it) }
+            }
+        }
+    }
 }
