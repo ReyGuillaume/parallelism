@@ -57,6 +57,10 @@ fun main(): Unit = runBlocking {
     launch {
         salleDeControle(detFeu, capPassage, capScanner)
     }
+
+    launch {
+        voyant(vert, rouge)
+    }
 }
 
 suspend fun faisceauLaser(detPassage: Channel<Unit>, capPassage: Channel<Unit>) {
@@ -174,4 +178,29 @@ fun timer(
 ) = runBlocking {
     sleep(timeout * 1000)
     finTimer.send(Unit)
+}
+
+suspend fun voyant(
+    vert: Channel<Unit>,
+    rouge: Channel<Unit>)= runBlocking {
+
+    var finTimer = Channel<Unit>()
+
+    var etat = "eteint"
+    while (true){
+        println("Voyant de la porte: État actuel -> $etat")
+        select<Unit> {
+            vert.onReceive {
+                timer(5, finTimer)
+                etat = "vert"
+            }
+            rouge.onReceive {
+                timer(10, finTimer)
+                etat = "rouge"
+            }
+            finTimer.onReceive {
+                etat = "eteint"
+            }
+        }
+    }
 }
