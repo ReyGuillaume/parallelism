@@ -21,8 +21,6 @@ fun main(): Unit = runBlocking {
     val capScanner = Channel<String>()
     val verification = Channel<Boolean>()
     val verifier = Channel<String>()
-    val porteOuverte = Channel<Unit>()
-    val ouvrir_porte = Channel<String>()
 
     // voyant
     val rouge = Channel<Unit>()
@@ -53,15 +51,15 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
-        passageUsager(ouvrirPorte, vert, detPassage, activAlarme)
+        porte(ouvrirPorte, vert, detPassage, activAlarme)
     }
 
     launch {
-        lecteurDeBadge(capScanner,verification, verifier, porteOuverte, ouvrir_porte, rouge)
+        lecteurDeBadge(capScanner,verification, verifier, ouvrirPorte, rouge)
     }
 
     launch {
-        salleDeControle(detFeu, capPassage, capScanner, afficherLogs)
+        salleDeControle(detFeu, capPassage, capScanner, afficherLogs, desactivAlarme)
     }
 }
 
@@ -69,7 +67,6 @@ suspend fun faisceauLaser(detPassage: Channel<Unit>, capPassage: Channel<Unit>) 
     while (true) {
         capPassage.receive()
         detPassage.send(Unit)
-        println("passage")
     }
 }
 
@@ -77,19 +74,19 @@ suspend fun alarme(
     activAlarme: Channel<Unit>,
     desactivAlarme: Channel<Unit>,
 ) {
-    var etat = "inactive"
+    var etat = "désactivée"
 
     while (true) {
         select<Unit> {
             activAlarme.onReceive {
-                etat = "active"
+                etat = "activée"
             }
 
             desactivAlarme.onReceive {
-                etat = "eteint"
+                etat = "désactivée"
             }
         }
-        println("Alarme: État actuel -> $etat")
+        println("Alarme $etat")
     }
 }
 
@@ -97,17 +94,16 @@ suspend fun lecteurDeBadge(
     capScanner: Channel<String>,
     verification: Channel<Boolean>,
     verifier: Channel<String>,
-    porteOuverte: Channel<Unit>,
-    ouvrir_porte: Channel<String>,
+    ouvrirPorte: Channel<String>,
     rouge: Channel<Unit>,
 ) {
     while (true) {
         val user = capScanner.receive()
         verifier.send(user)
         val userAccepted = verification.receive()
+        println("AUTH : $user $userAccepted")
         if(userAccepted){
-            ouvrir_porte.send(user)
-            porteOuverte.send(Unit)
+            ouvrirPorte.send(user)
         } else {
             rouge.send(Unit)
         }
@@ -121,7 +117,13 @@ suspend fun detecteurIncendie(detFeu: Channel<Unit>, activAlarm: Channel<Unit>) 
     }
 }
 
-suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, capScanner: Channel<String>, afficherLogs: Channel<Unit>) {
+suspend fun salleDeControle(
+    detFeu: Channel<Unit>,
+    capPassage: Channel<Unit>,
+    capScanner: Channel<String>,
+    afficherLogs: Channel<Unit>,
+    desactivAlarme: Channel<Unit>
+) {
     val userInput = Scanner(System.`in`)
 
     while (true) {
@@ -132,20 +134,17 @@ suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, ca
             detFeu.send(Unit)
         }
 
-        if (input.equals("eteindre feu", ignoreCase = true)) {
-            detFeu.send(Unit)
-        }
-
         if (input.equals("eteindre alarme", ignoreCase = true)) {
-            detFeu.send(Unit)
+            desactivAlarme.send(Unit)
         }
 
         if (input.equals("passage", ignoreCase = true)) {
             capPassage.send(Unit)
         }
 
-        if (input.equals("scan", ignoreCase = true)) {
-            capScanner.send("guigui")
+        if (input.startsWith("scan ", ignoreCase = true)) {
+            val user = input.drop(5)
+            capScanner.send(user)
         }
 
         if (input.equals("logs", ignoreCase = true)) {
@@ -156,30 +155,40 @@ suspend fun salleDeControle(detFeu: Channel<Unit>, capPassage: Channel<Unit>, ca
     }
 }
 
-fun passageUsager(
+suspend fun porte(
     ouvrirPorte: Channel<String>,
     vert: Channel<Unit>,
     detPassage: Channel<Unit>,
     activAlarm: Channel<Unit>
-) = runBlocking {
-    val finTimer = Channel<Unit>()
+) {
+    withContext(Dispatchers.IO) {
+        val finTimer = Channel<Unit>()
 
-    while (true) {
-        ouvrirPorte.receive()
-        println("porte")
         launch {
-            timer(30, finTimer)
+            while (true) {
+                ouvrirPorte.receive()
+                vert.send(Unit)
+                launch { timer(30, finTimer) } // timer avant fermeture de la porte
+                println("porte ouverte")
+            }
         }
-        vert.send(Unit)
-        select<Unit> {
-            finTimer.onReceive {}
-            detPassage.onReceive {
-                println("porte2")
+
+        launch {
+            while (true) {
+                finTimer.receive()
+                println("porte fermée")
+            }
+        }
+
+        launch {
+            while (true) {
+                detPassage.receive()
                 select<Unit> {
-                    finTimer.onReceive {}
                     detPassage.onReceive {
-                        println("porte3")
                         activAlarm.send(Unit)
+                    }
+                    finTimer.onReceive {
+                        println("porte fermée")
                     }
                 }
             }
@@ -202,9 +211,9 @@ suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boole
     while (true) {
         select<Unit> {
             verifier.onReceive {
-                val auth = authorisation.contains(it)
-                verification.send(auth)
-                logs.add(it)
+                val estAutorise = authorisation.contains(it)
+                verification.send(estAutorise)
+                logs.add((if(estAutorise) "\uD83D\uDFE2" else "\uD83D\uDD34") + it)
             }
             afficherLogs.onReceive {
                 println("--- Logs ---")
@@ -214,31 +223,38 @@ suspend fun systemeGlobal(verifier: Channel<String>, verification: Channel<Boole
     }
 }
 
-fun voyant(
+suspend fun voyant(
     vert: Channel<Unit>,
     rouge: Channel<Unit>
-) = runBlocking {
-    val finTimer = Channel<Unit>()
-    var etat = "eteint"
+) {
+    withContext(Dispatchers.IO) {
+        val finTimer = Channel<Unit>()
+        var etat: String
 
-    while (true){
-        select<Unit> {
-            vert.onReceive {
-                etat = "vert"
-                launch {
-                    timer(5, finTimer)
-                }
-            }
-            rouge.onReceive {
-                etat = "rouge"
-                launch {
-                    timer(10, finTimer)
-                }
-            }
-            finTimer.onReceive {
-                etat = "eteint"
+        launch {
+            while (true) {
+                vert.receive()
+                etat = "\uD83D\uDFE2"
+                launch { timer(5, finTimer) }
+                println("Voyant $etat")
             }
         }
-        println("Voyant de la porte: État actuel -> $etat")
+
+        launch {
+            while (true) {
+                rouge.receive()
+                etat = "\uD83D\uDD34"
+                launch { timer(10, finTimer) }
+                println("Voyant $etat")
+            }
+        }
+
+        launch {
+            while (true) {
+                finTimer.receive()
+                etat = "eteint"
+                println("Voyant $etat")
+            }
+        }
     }
 }
