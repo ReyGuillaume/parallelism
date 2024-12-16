@@ -44,17 +44,17 @@ fun main(): Unit = runBlocking {
 
     suspend fun setEtatPorte(etat: String) {
         etatPorte = etat
-        changerAffichage.send(Unit)
+        println("la porte devient $etat")
     }
 
     suspend fun setEtatVoyant(etat: String) {
         etatVoyant = etat
-        changerAffichage.send(Unit)
+        println("la voyant passe $etat")
     }
 
     suspend fun setEtatAlarme(etat: String) {
         etatAlarme = etat
-        changerAffichage.send(Unit)
+        println("l'alarme devient $etat")
     }
 
     launch {
@@ -96,7 +96,7 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
-        salleDeControle(detFeu, capPassage, capScanner, afficherLogs, desactivAlarme)
+        salleDeControle(detFeu, capPassage, capScanner, afficherLogs, desactivAlarme, etatPorte)
     }
 }
 
@@ -155,7 +155,8 @@ suspend fun salleDeControle(
     capPassage: Channel<Unit>,
     capScanner: Channel<String>,
     afficherLogs: Channel<Unit>,
-    desactivAlarme: Channel<Unit>
+    desactivAlarme: Channel<Unit>,
+    etatPorte: String
 ) = withContext(Dispatchers.IO) {
     val userInput = Scanner(System.`in`)
 
@@ -171,7 +172,11 @@ suspend fun salleDeControle(
         }
 
         if (input.equals("passage", ignoreCase = true)) {
-            capPassage.send(Unit)
+            if(etatPorte == "ouverte") {
+                capPassage.send(Unit)
+            } else {
+                println("Vous ne pouvez pas rentrer la porte est fermée")
+            }
         }
 
         if (input.startsWith("scan ", ignoreCase = true)) {
@@ -199,11 +204,12 @@ suspend fun porte(
     launch {
         while (true) {
             ouvrirPorte.receive()
-            vert.send(Unit)
-            launch { timer(30, finTimer) } // timer avant fermeture de la porte
             setEtatPorte("ouverte")
+            vert.send(Unit)
+            launch { timer(10, finTimer) } // timer avant fermeture de la porte
         }
     }
+
 
     launch {
         while (true) {
@@ -264,8 +270,9 @@ suspend fun voyant(
     launch {
         while (true) {
             vert.receive()
-            launch { timer(5, finTimer) }
+            launch { timer(10, finTimer) }
             setEtatVoyant("\uD83D\uDFE2")
+
         }
     }
 
@@ -280,7 +287,7 @@ suspend fun voyant(
     launch {
         while (true) {
             finTimer.receive()
-            setEtatVoyant("eteint")
+            setEtatVoyant("éteint")
         }
     }
 }
