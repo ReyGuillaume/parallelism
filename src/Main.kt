@@ -37,15 +37,12 @@ fun main(): Unit = runBlocking {
 
     val changerAffichage = Channel<Unit>()
 
+    val etatPorte = Channel<String>(1)
+    etatPorte.send("fermée")
+
     // Variables
-    var etatPorte = "fermée"
     var etatVoyant = "éteint"
     var etatAlarme = "éteinte"
-
-    suspend fun setEtatPorte(etat: String) {
-        etatPorte = etat
-        println("la porte devient $etat")
-    }
 
     suspend fun setEtatVoyant(etat: String) {
         etatVoyant = etat
@@ -78,7 +75,7 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
-        porte(ouvrirPorte, vert, detPassage, activAlarme) { launch { setEtatPorte(it) } }
+        porte(ouvrirPorte, vert, detPassage, activAlarme, etatPorte)
     }
 
     launch {
@@ -86,11 +83,12 @@ fun main(): Unit = runBlocking {
     }
 
     launch {
-        print("> Etat initial : ")
-        affichage(etatPorte, etatVoyant, etatAlarme)
+        print("> État initial : ")
+        affichage(etatPorte.receive(), etatVoyant, etatAlarme) // Lecture de l'état initial
         while (true) {
             changerAffichage.receive()
-            print("Etat actuel du merdier : ")
+            val etatPorte = etatPorte.receive()
+            print("État actuel du système : ")
             affichage(etatPorte, etatVoyant, etatAlarme)
         }
     }
@@ -156,9 +154,10 @@ suspend fun salleDeControle(
     capScanner: Channel<String>,
     afficherLogs: Channel<Unit>,
     desactivAlarme: Channel<Unit>,
-    etatPorte: String
+    etatPorte: Channel<String>
 ) = withContext(Dispatchers.IO) {
     val userInput = Scanner(System.`in`)
+    etatPorte.send("fermée")
 
     while (true) {
         val input = userInput.nextLine()
@@ -167,21 +166,24 @@ suspend fun salleDeControle(
             detFeu.send(Unit)
         }
 
-        if (input.equals("eteindre alarme", ignoreCase = true)) {
+        if (input.equals("eteindre", ignoreCase = true)) {
             desactivAlarme.send(Unit)
         }
 
         if (input.equals("passage", ignoreCase = true)) {
-            if(etatPorte == "ouverte") {
+            val ep = etatPorte.receive()
+            etatPorte.send(ep)
+            if (ep == "ouverte") {
                 capPassage.send(Unit)
             } else {
-                println("Vous ne pouvez pas rentrer la porte est fermée")
+                println("Vous ne pouvez pas entrer, la porte est fermée")
             }
         }
 
         if (input.startsWith("scan ", ignoreCase = true)) {
             val user = input.drop(5)
             capScanner.send(user)
+
         }
 
         if (input.equals("logs", ignoreCase = true)) {
@@ -197,24 +199,28 @@ suspend fun porte(
     vert: Channel<Unit>,
     detPassage: Channel<Unit>,
     activAlarm: Channel<Unit>,
-    setEtatPorte: (String) -> Unit,
+    etatPorte: Channel<String>
 ) = withContext(Dispatchers.IO) {
     val finTimer = Channel<Unit>()
 
     launch {
         while (true) {
             ouvrirPorte.receive()
-            setEtatPorte("ouverte")
+            etatPorte.receive() // clean état porte
+            etatPorte.send("ouverte")
             vert.send(Unit)
-            launch { timer(10, finTimer) } // timer avant fermeture de la porte
+            println("La porte est ouverte")
+            launch { timer(20, finTimer) }
         }
     }
-
 
     launch {
         while (true) {
             finTimer.receive()
-            setEtatPorte("fermée")
+            etatPorte.receive() //clean etat porte
+            etatPorte.send("fermée")
+            println("La porte est fermée")
+
         }
     }
 
@@ -226,7 +232,7 @@ suspend fun porte(
                     activAlarm.send(Unit)
                 }
                 finTimer.onReceive {
-                    setEtatPorte("fermée")
+                    etatPorte.send("fermée")
                 }
             }
         }
@@ -270,16 +276,15 @@ suspend fun voyant(
     launch {
         while (true) {
             vert.receive()
-            launch { timer(10, finTimer) }
+            launch { timer(20, finTimer) }
             setEtatVoyant("\uD83D\uDFE2")
-
         }
     }
 
     launch {
         while (true) {
             rouge.receive()
-            launch { timer(10, finTimer) }
+            launch { timer(20, finTimer) }
             setEtatVoyant("\uD83D\uDD34")
         }
     }
