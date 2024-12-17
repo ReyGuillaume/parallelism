@@ -87,14 +87,15 @@ fun main(): Unit = runBlocking {
         affichage(etatPorte.receive(), etatVoyant, etatAlarme) // Lecture de l'état initial
         while (true) {
             changerAffichage.receive()
-            val etatPorte = etatPorte.receive()
+            val ep = etatPorte.receive()
+            etatPorte.send(ep)
             print("État actuel du système : ")
-            affichage(etatPorte, etatVoyant, etatAlarme)
+            affichage(ep, etatVoyant, etatAlarme)
         }
     }
 
     launch {
-        salleDeControle(detFeu, capPassage, capScanner, afficherLogs, desactivAlarme, etatPorte)
+        salleDeControle(detFeu, capPassage, capScanner, afficherLogs, desactivAlarme, etatPorte, changerAffichage)
     }
 }
 
@@ -154,13 +155,18 @@ suspend fun salleDeControle(
     capScanner: Channel<String>,
     afficherLogs: Channel<Unit>,
     desactivAlarme: Channel<Unit>,
-    etatPorte: Channel<String>
+    etatPorte: Channel<String>,
+    changerAffichage: Channel<Unit>
 ) = withContext(Dispatchers.IO) {
     val userInput = Scanner(System.`in`)
     etatPorte.send("fermée")
 
     while (true) {
         val input = userInput.nextLine()
+
+        if (input.equals("a", ignoreCase = true)) {
+            changerAffichage.send(Unit)
+        }
 
         if (input.equals("feu", ignoreCase = true)) {
             detFeu.send(Unit)
